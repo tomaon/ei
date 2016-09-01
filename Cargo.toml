@@ -6,7 +6,7 @@ authors = ["tomaon <tomaon@outlook.jp>"]
 description = "erl_interface for rust"
 repository = "https://github.com/tomaon/ei"
 keywords = ["erlang", "erl_interface", "cnode"]
-license = "Apache License 2.0"
+license = "Apache-2.0"
 
 [dependencies]
 rust-crypto = "^0.2.36"
