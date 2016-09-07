@@ -36,7 +36,7 @@ impl<'a> rustc_serialize::Decoder for Decoder<'a> {
     }
 
     fn read_u64(&mut self) -> Result<u64, Self::Error> {
-        match try!(self.read_num()) {
+        match try!(read_num(self.r)) {
             Num::U8(u)                                           => Ok(u as u64),
             Num::I27(i)    if range!(i, u32::MIN, i32::MAX, i32) => Ok(i as u64), // != i27
             Num::U64(u, 0)                                       => Ok(u),
@@ -45,7 +45,7 @@ impl<'a> rustc_serialize::Decoder for Decoder<'a> {
     }
 
     fn read_u32(&mut self) -> Result<u32, Self::Error> {
-        match try!(self.read_num()) {
+        match try!(read_num(self.r)) {
             Num::U8(u)                                           => Ok(u as u32),
             Num::I27(i)    if range!(i, u32::MIN, i32::MAX, i32) => Ok(i as u32), // != i27
             Num::U64(u, 0) if range!(u, u32::MIN, u32::MAX, u64) => Ok(u as u32),
@@ -54,7 +54,7 @@ impl<'a> rustc_serialize::Decoder for Decoder<'a> {
     }
 
     fn read_u16(&mut self) -> Result<u16, Self::Error> {
-        match try!(self.read_num()) {
+        match try!(read_num(self.r)) {
             Num::U8(u)                                           => Ok(u as u16),
             Num::I27(i)    if range!(i, u16::MIN, u16::MAX, i32) => Ok(i as u16),
             Num::U64(u, 0) if range!(u, u16::MIN, u16::MAX, u64) => Ok(u as u16),
@@ -63,7 +63,7 @@ impl<'a> rustc_serialize::Decoder for Decoder<'a> {
     }
 
     fn read_u8(&mut self) -> Result<u8, Self::Error> {
-        match try!(self.read_num()) {
+        match try!(read_num(self.r)) {
             Num::U8(u) => Ok(u),
             _          => Err(from_raw_os_error!(EIO)),
         }
@@ -74,7 +74,7 @@ impl<'a> rustc_serialize::Decoder for Decoder<'a> {
     }
 
     fn read_i64(&mut self) -> Result<i64, Self::Error> {
-        match try!(self.read_num()) {
+        match try!(read_num(self.r)) {
             Num::U8(u)                                           => Ok(u as i64),
             Num::I27(i)                                          => Ok(i as i64),
             Num::U64(u, 0) if range!(u, u64::MIN, i64::MAX, u64) => Ok(u as i64),
@@ -84,7 +84,7 @@ impl<'a> rustc_serialize::Decoder for Decoder<'a> {
     }
 
     fn read_i32(&mut self) -> Result<i32, Self::Error> {
-        match try!(self.read_num()) {
+        match try!(read_num(self.r)) {
             Num::U8(u)                                           => Ok(u as i32),
             Num::I27(i)                                          => Ok(i),
             Num::U64(u, 0) if range!(u, u32::MIN, i32::MAX, u64) => Ok(u as i32),
@@ -94,7 +94,7 @@ impl<'a> rustc_serialize::Decoder for Decoder<'a> {
     }
 
     fn read_i16(&mut self) -> Result<i16, Self::Error> {
-        match try!(self.read_num()) {
+        match try!(read_num(self.r)) {
             Num::U8(u)                                           => Ok(u as i16),
             Num::I27(i)    if range!(i, i16::MIN, i16::MAX, i32) => Ok(i as i16),
             Num::U64(u, 0) if range!(u, u16::MIN, i16::MAX, u64) => Ok(u as i16),
@@ -103,7 +103,7 @@ impl<'a> rustc_serialize::Decoder for Decoder<'a> {
     }
 
     fn read_i8(&mut self) -> Result<i8, Self::Error> {
-        match try!(self.read_num()) {
+        match try!(read_num(self.r)) {
             Num::U8(u)     if range!(u, u8::MIN, i8::MAX,  u8) => Ok(u as i8),
             Num::I27(i)    if range!(i, i8::MIN, i8::MAX, i32) => Ok(i as i8),
             Num::U64(u, 0) if range!(u, u8::MIN, i8::MAX, u64) => Ok(u as i8),
@@ -136,7 +136,7 @@ impl<'a> rustc_serialize::Decoder for Decoder<'a> {
     fn read_str(&mut self) -> Result<String, Self::Error> {
         match try!(self.r.read_u8()) {
             ERL_NIL_EXT    => Ok("".to_string()),
-            ERL_STRING_EXT => self.read_str(),
+            ERL_STRING_EXT => read_string(self.r),
             ERL_LIST_EXT   => unimplemented!(), // TODO
             _              => Err(from_raw_os_error!(EIO)),
         }
@@ -252,57 +252,40 @@ impl<'a> rustc_serialize::Decoder for Decoder<'a> {
     }
 }
 
-impl<'a> Decoder<'a> {
-
-    fn read_num(&mut self) -> Result<Num, error::Error> {
-        match try!(self.r.read_u8()) {
-            ERL_SMALL_INTEGER_EXT => self.read_u8(),
-            ERL_INTEGER_EXT       => self.read_i27(),
-            ERL_SMALL_BIG_EXT     => self.read_small_big(),
-            _                     => Err(from_raw_os_error!(EIO)),
-        }
-    }
-
-    fn read_u8(&mut self) -> Result<Num, error::Error> {
-        self.r.read_u8().and_then(|u| Ok(Num::U8(u)))
-    }
-
-    fn read_i27(&mut self) -> Result<Num, error::Error> {
-        self.r.read_i32().and_then(|i| Ok(Num::I27(i)))
-    }
-
-    fn read_small_big(&mut self) -> Result<Num, error::Error> {
-        self.r.read_u8().and_then(|a| match a {
-            a if a > 8 => Err(from_raw_os_error!(ERANGE)),
-            a          => {
-                let s = try!(self.r.read_u8());
-                self.r.read_vec(a as usize)
-                    .and_then(|v| {
-                        Ok(v.iter().enumerate().fold(0u64, |a,(i,e)| a | (*e as u64) << (i as u32 * 8)))
-                    })
-                    .and_then(|u| Ok(Num::U64(u, s)))
-            },
-        })
-    }
-
-    fn read_str(&mut self) -> Result<String, error::Error> {
-        self.r.read_u16().and_then(|u| self.r.read_string(u as usize))
+fn read_num(r: &mut io::Read) -> Result<Num, error::Error> {
+    match try!(r.read_u8()) {
+        ERL_SMALL_INTEGER_EXT => read_u8(r),
+        ERL_INTEGER_EXT       => read_i27(r),
+        ERL_SMALL_BIG_EXT     => read_small_big(r),
+        _                     => Err(from_raw_os_error!(EIO)),
     }
 }
 
-trait DecoderExt<'a> {
-    fn r(&mut self) -> &'a mut io::Read;
+fn read_u8(r: &mut io::Read) -> Result<Num, error::Error> {
+    r.read_u8().and_then(|u| Ok(Num::U8(u)))
 }
 
-impl<'a, T: rustc_serialize::Decoder> DecoderExt<'a> for T {
-
-    fn r(&mut self) -> &'a mut io::Read {
-        let decoder: &'a mut Decoder<'a> = unsafe { mem::transmute(self) };
-        decoder.r
-    }
+fn read_i27(r: &mut io::Read) -> Result<Num, error::Error> {
+    r.read_i32().and_then(|i| Ok(Num::I27(i)))
 }
 
-// TODO: E::Error = <T as rustc_serialize:Encoder>::Error, -> error.Error
+fn read_small_big(r: &mut io::Read) -> Result<Num, error::Error> {
+    r.read_u8().and_then(|a| match a {
+        a if a > 8 => Err(from_raw_os_error!(ERANGE)),
+        a          => {
+            let s = try!(r.read_u8());
+            r.read_vec(a as usize)
+                .and_then(|v| {
+                    Ok(v.iter().enumerate().fold(0u64, |a,(i,e)| a | (*e as u64) << (i as u32 * 8)))
+                })
+                .and_then(|u| Ok(Num::U64(u, s)))
+        },
+    })
+}
+
+fn read_string(r: &mut io::Read) -> Result<String, error::Error> {
+    r.read_u16().and_then(|u| r.read_string(u as usize))
+}
 
 fn read_atom(r: &mut io::Read) -> Result<term::Atom, error::Error> {
 
@@ -323,13 +306,6 @@ fn read_atom(r: &mut io::Read) -> Result<term::Atom, error::Error> {
             _                                                    => unreachable!(),
         },
         Err(e) => Err(From::from(e)),
-    }
-}
-
-impl rustc_serialize::Decodable for term::Atom {
-
-    fn decode<D: rustc_serialize::Decoder>(d: &mut D) -> Result<Self, D::Error> {
-        d.read_enum("Atom", |d| read_atom(d.r()).or_else(|_| unimplemented!()))
     }
 }
 
@@ -383,13 +359,6 @@ fn read_msg(r: &mut io::Read) -> Result<term::Msg, error::Error> {
     }
 }
 
-impl rustc_serialize::Decodable for term::Msg {
-
-    fn decode<D: rustc_serialize::Decoder>(d: &mut D) -> Result<Self, D::Error> {
-        d.read_enum("Msg", |d| read_msg(d.r()).or_else(|_| unimplemented!()))
-    }
-}
-
 fn read_pid(r: &mut io::Read) -> Result<term::Pid, error::Error> {
 
     let t: bool = match try!(r.read_u8()) {
@@ -406,13 +375,6 @@ fn read_pid(r: &mut io::Read) -> Result<term::Pid, error::Error> {
     })
 }
 
-impl rustc_serialize::Decodable for term::Pid {
-
-    fn decode<D: rustc_serialize::Decoder>(d: &mut D) -> Result<Self, D::Error> {
-        d.read_struct("Pid", 4, |d| read_pid(d.r()).or_else(|_| unimplemented!()))
-    }
-}
-
 fn read_port(r: &mut io::Read) -> Result<term::Port, error::Error> {
 
     let t = match try!(r.read_u8()) {
@@ -426,13 +388,6 @@ fn read_port(r: &mut io::Read) -> Result<term::Port, error::Error> {
         id: try!(r.read_u32()) & 0x0fffffff,
         creation: if t { try!(r.read_u32()) } else { try!(r.read_u8()) as u32 & 0x03 },
     })
-}
-
-impl rustc_serialize::Decodable for term::Port {
-
-    fn decode<D: rustc_serialize::Decoder>(d: &mut D) -> Result<Self, D::Error> {
-        d.read_struct("Port", 3, |d| read_port(d.r()).or_else(|_| unimplemented!()))
-    }
 }
 
 fn read_ref(r: &mut io::Read) -> Result<term::Ref, error::Error> {
@@ -455,6 +410,48 @@ fn read_ref(r: &mut io::Read) -> Result<term::Ref, error::Error> {
     }
 
     Ok(term::Ref { len: len, node: node, creation: creation, n: n })
+}
+
+trait DecoderExt<'a> {
+    fn r(&mut self) -> &'a mut io::Read;
+}
+
+impl<'a, T: rustc_serialize::Decoder> DecoderExt<'a> for T {
+
+    fn r(&mut self) -> &'a mut io::Read {
+        let decoder: &'a mut Decoder<'a> = unsafe { mem::transmute(self) };
+        decoder.r
+    }
+}
+
+// TODO: E::Error = <T as rustc_serialize:Encoder>::Error, -> error.Error
+
+impl rustc_serialize::Decodable for term::Atom {
+
+    fn decode<D: rustc_serialize::Decoder>(d: &mut D) -> Result<Self, D::Error> {
+        d.read_enum("Atom", |d| read_atom(d.r()).or_else(|_| unimplemented!()))
+    }
+}
+
+impl rustc_serialize::Decodable for term::Msg {
+
+    fn decode<D: rustc_serialize::Decoder>(d: &mut D) -> Result<Self, D::Error> {
+        d.read_enum("Msg", |d| read_msg(d.r()).or_else(|_| unimplemented!()))
+    }
+}
+
+impl rustc_serialize::Decodable for term::Pid {
+
+    fn decode<D: rustc_serialize::Decoder>(d: &mut D) -> Result<Self, D::Error> {
+        d.read_struct("Pid", 4, |d| read_pid(d.r()).or_else(|_| unimplemented!()))
+    }
+}
+
+impl rustc_serialize::Decodable for term::Port {
+
+    fn decode<D: rustc_serialize::Decoder>(d: &mut D) -> Result<Self, D::Error> {
+        d.read_struct("Port", 3, |d| read_port(d.r()).or_else(|_| unimplemented!()))
+    }
 }
 
 impl rustc_serialize::Decodable for term::Ref {

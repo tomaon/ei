@@ -79,6 +79,7 @@ pub const ERL_VERSION_MAGIC :u8 = 0x83; // 131
 
 // -- /usr/include/errno.h --
 
+pub const EINTR        :i32 =  4; // Interrupted system call
 pub const EIO          :i32 =  5; // Input/output error
 pub const EINVAL       :i32 = 22; // Invalid argument
 pub const EDOM         :i32 = 33; // Numerical argument out of domain

@@ -32,29 +32,29 @@ impl<'a> rustc_serialize::Encoder for Encoder<'a> {
 
     fn emit_u64(&mut self, v: u64) -> Result<(), Self::Error> {
         match v {
-            u if range!(u,  u8::MIN,  u8::MAX, u64) => self.write_u8(u as u8),
-            u if range!(u, u32::MIN, i27::MAX, u64) => self.write_i27(u as i32),
-            u                                       => self.write_small_big(0, u as u64),
+            u if range!(u,  u8::MIN,  u8::MAX, u64) => write_u8(self.w, u as u8),
+            u if range!(u, u32::MIN, i27::MAX, u64) => write_i27(self.w, u as i32),
+            u                                       => write_small_big(self.w, 0, u as u64),
         }
     }
 
     fn emit_u32(&mut self, v: u32) -> Result<(), Self::Error> {
         match v {
-            u if range!(u,  u8::MIN,  u8::MAX, u32) => self.write_u8(u as u8),
-            u if range!(u, u32::MIN, i27::MAX, u32) => self.write_i27(u as i32),
-            u                                       => self.write_small_big(0, u as u64),
+            u if range!(u,  u8::MIN,  u8::MAX, u32) => write_u8(self.w, u as u8),
+            u if range!(u, u32::MIN, i27::MAX, u32) => write_i27(self.w, u as i32),
+            u                                       => write_small_big(self.w, 0, u as u64),
         }
     }
 
     fn emit_u16(&mut self, v: u16) -> Result<(), Self::Error> {
         match v {
-            u if range!(u, u8::MIN, u8::MAX, u16) => self.write_u8(u as u8),
-            u                                     => self.write_i27(u as i32),
+            u if range!(u, u8::MIN, u8::MAX, u16) => write_u8(self.w, u as u8),
+            u                                     => write_i27(self.w, u as i32),
         }
     }
 
     fn emit_u8(&mut self, v: u8) -> Result<(), Self::Error> {
-        self.write_u8(v)
+        write_u8(self.w, v)
     }
 
     fn emit_isize(&mut self, _v: isize) -> Result<(), Self::Error> {
@@ -64,34 +64,34 @@ impl<'a> rustc_serialize::Encoder for Encoder<'a> {
     fn emit_i64(&mut self, v: i64) -> Result<(), Self::Error> {
         match v {
             i if i == i64::MIN                      => Err(from_raw_os_error!(EDOM)),
-            i if range!(i,  u8::MIN,  u8::MAX, i64) => self.write_u8(i as u8),
-            i if range!(i, i27::MIN, i27::MAX, i64) => self.write_i27(i as i32),
-            i if range!(i, i64::MIN, u64::MIN, i64) => self.write_small_big(1, i.abs() as u64),
-            i                                       => self.write_small_big(0, i as u64),
+            i if range!(i,  u8::MIN,  u8::MAX, i64) => write_u8(self.w, i as u8),
+            i if range!(i, i27::MIN, i27::MAX, i64) => write_i27(self.w, i as i32),
+            i if range!(i, i64::MIN, u64::MIN, i64) => write_small_big(self.w, 1, i.abs() as u64),
+            i                                       => write_small_big(self.w, 0, i as u64),
         }
     }
 
     fn emit_i32(&mut self, v: i32) -> Result<(), Self::Error> {
         match v {
             i if i == i32::MIN                      => Err(from_raw_os_error!(EDOM)),
-            i if range!(i,  u8::MIN,  u8::MAX, i32) => self.write_u8(i as u8),
-            i if range!(i, i27::MIN, i27::MAX, i32) => self.write_i27(i as i32),
-            i if range!(i, i32::MIN, u32::MIN, i32) => self.write_small_big(1, i.abs() as u64),
-            i                                       => self.write_small_big(0, i as u64),
+            i if range!(i,  u8::MIN,  u8::MAX, i32) => write_u8(self.w, i as u8),
+            i if range!(i, i27::MIN, i27::MAX, i32) => write_i27(self.w, i as i32),
+            i if range!(i, i32::MIN, u32::MIN, i32) => write_small_big(self.w, 1, i.abs() as u64),
+            i                                       => write_small_big(self.w, 0, i as u64),
         }
     }
 
     fn emit_i16(&mut self, v: i16) -> Result<(), Self::Error> {
         match v {
-            i if range!(i, u8::MIN, u8::MAX, i16) => self.write_u8(i as u8),
-            i                                     => self.write_i27(i as i32),
+            i if range!(i, u8::MIN, u8::MAX, i16) => write_u8(self.w, i as u8),
+            i                                     => write_i27(self.w, i as i32),
         }
     }
 
     fn emit_i8(&mut self, v: i8) -> Result<(), Self::Error> {
         match v {
-            i if range!(i, u8::MIN, i8::MAX, i8) => self.write_u8(i as u8),
-            i                                    => self.write_i27(i as i32),
+            i if range!(i, u8::MIN, i8::MAX, i8) => write_u8(self.w, i as u8),
+            i                                    => write_i27(self.w, i as i32),
         }
     }
 
@@ -115,7 +115,7 @@ impl<'a> rustc_serialize::Encoder for Encoder<'a> {
         match v.len() {
             0                          => self.emit_nil(),
             n if n > u16::MAX as usize => unimplemented!(), // TODO
-            n                          => self.write_str(v, n),
+            n                          => write_str(self.w, v, n),
         }
     }
 
@@ -227,48 +227,31 @@ impl<'a> rustc_serialize::Encoder for Encoder<'a> {
     }
 }
 
-impl<'a> Encoder<'a> {
-
-    fn write_u8(&mut self, v: u8) -> Result<(), error::Error> {
-        self.w.write_slice(&[ERL_SMALL_INTEGER_EXT, v])
-    }
-
-    fn write_i27(&mut self, v: i32) -> Result<(), error::Error> {
-        self.w.write_u8(ERL_INTEGER_EXT).and_then(|()| self.w.write_i32(v))
-    }
-
-    fn write_small_big(&mut self, s: u8, v: u64) -> Result<(), error::Error> {
-        let mut buf: Vec<u8> = Vec::with_capacity(8);
-        let mut x = v;
-        while x != 0 {
-            buf.push((x & 0xff) as u8);
-            x >>= 8;
-        }
-        buf.shrink_to_fit();
-        self.w.write_slice(&[ERL_SMALL_BIG_EXT, buf.len() as u8, s])
-            .and_then(|()| self.w.write_slice(buf.as_slice()))
-    }
-
-    fn write_str(&mut self, v: &str, len: usize) -> Result<(), error::Error> {
-        self.w.write_u8(ERL_STRING_EXT)
-            .and_then(|()| self.w.write_u16(len as u16))
-            .and_then(|()| self.w.write_slice(v.as_bytes()))
-    }
+fn write_u8(w: &mut io::Write, v: u8) -> Result<(), error::Error> {
+    w.write_slice(&[ERL_SMALL_INTEGER_EXT, v])
 }
 
-trait EncoderExt<'a> {
-    fn w(&mut self) -> &'a mut io::Write;
+fn write_i27(w: &mut io::Write, v: i32) -> Result<(), error::Error> {
+    w.write_u8(ERL_INTEGER_EXT).and_then(|()| w.write_i32(v))
 }
 
-impl<'a, T: rustc_serialize::Encoder> EncoderExt<'a> for T {
-
-    fn w(&mut self) -> &'a mut io::Write {
-        let encoder: &'a mut Encoder<'a> = unsafe { mem::transmute(self) };
-        encoder.w
+fn write_small_big(w: &mut io::Write, s: u8, v: u64) -> Result<(), error::Error> {
+    let mut buf: Vec<u8> = Vec::with_capacity(8);
+    let mut x = v;
+    while x != 0 {
+        buf.push((x & 0xff) as u8);
+        x >>= 8;
     }
+    buf.shrink_to_fit();
+    w.write_slice(&[ERL_SMALL_BIG_EXT, buf.len() as u8, s])
+        .and_then(|()| w.write_slice(buf.as_slice()))
 }
 
-// TODO: S::Error = <S as rustc_serialize:Encoder>::Error, -> error.Error
+fn write_str(w: &mut io::Write, v: &str, len: usize) -> Result<(), error::Error> {
+    w.write_u8(ERL_STRING_EXT)
+        .and_then(|()| w.write_u16(len as u16))
+        .and_then(|()| w.write_slice(v.as_bytes()))
+}
 
 fn write_atom(w: &mut io::Write, v: &term::Atom) -> Result<(), error::Error> {
     match *v {
@@ -288,13 +271,6 @@ fn write_atom(w: &mut io::Write, v: &term::Atom) -> Result<(), error::Error> {
             w.write_slice(s.as_bytes())
         },
         _ => Err(from_raw_os_error!(ERANGE)),
-    }
-}
-
-impl rustc_serialize::Encodable for term::Atom {
-
-    fn encode<S: rustc_serialize::Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        s.emit_enum("Atom", |s| write_atom(s.w(), &self).or_else(|_| unimplemented!()))
     }
 }
 
@@ -349,13 +325,6 @@ fn write_msg(w: &mut io::Write, v: &term::Msg) -> Result<(), error::Error> {
     }
 }
 
-impl rustc_serialize::Encodable for term::Msg {
-
-    fn encode<S: rustc_serialize::Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        s.emit_enum("Msg", |s| write_msg(s.w(), &self).or_else(|_| unimplemented!()))
-    }
-}
-
 fn write_pid(w: &mut io::Write, v: &term::Pid) -> Result<(), error::Error> {
 
     if v.creation > 3 {
@@ -377,13 +346,6 @@ fn write_pid(w: &mut io::Write, v: &term::Pid) -> Result<(), error::Error> {
     }
 }
 
-impl rustc_serialize::Encodable for term::Pid {
-
-    fn encode<S: rustc_serialize::Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        s.emit_struct("Pid", 4, |s| write_pid(s.w(), &self).or_else(|_| unimplemented!()))
-    }
-}
-
 fn write_port(w: &mut io::Write, v: &term::Port) -> Result<(), error::Error> {
 
     if v.creation > 3 {
@@ -400,13 +362,6 @@ fn write_port(w: &mut io::Write, v: &term::Port) -> Result<(), error::Error> {
         w.write_u32(v.creation)
     } else {
         w.write_u8(v.creation as u8)
-    }
-}
-
-impl rustc_serialize::Encodable for term::Port {
-
-    fn encode<S: rustc_serialize::Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
-        s.emit_struct("Port", 3, |s| write_port(s.w(), &self).or_else(|_| unimplemented!()))
     }
 }
 
@@ -433,6 +388,48 @@ fn write_ref(w: &mut io::Write, v: &term::Ref) -> Result<(), error::Error> {
     }
 
     Ok(())
+}
+
+trait EncoderExt<'a> {
+    fn w(&mut self) -> &'a mut io::Write;
+}
+
+impl<'a, T: rustc_serialize::Encoder> EncoderExt<'a> for T {
+
+    fn w(&mut self) -> &'a mut io::Write {
+        let encoder: &'a mut Encoder<'a> = unsafe { mem::transmute(self) };
+        encoder.w
+    }
+}
+
+// TODO: S::Error = <S as rustc_serialize:Encoder>::Error, -> error.Error
+
+impl rustc_serialize::Encodable for term::Atom {
+
+    fn encode<S: rustc_serialize::Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+        s.emit_enum("Atom", |s| write_atom(s.w(), &self).or_else(|_| unimplemented!()))
+    }
+}
+
+impl rustc_serialize::Encodable for term::Msg {
+
+    fn encode<S: rustc_serialize::Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+        s.emit_enum("Msg", |s| write_msg(s.w(), &self).or_else(|_| unimplemented!()))
+    }
+}
+
+impl rustc_serialize::Encodable for term::Pid {
+
+    fn encode<S: rustc_serialize::Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+        s.emit_struct("Pid", 4, |s| write_pid(s.w(), &self).or_else(|_| unimplemented!()))
+    }
+}
+
+impl rustc_serialize::Encodable for term::Port {
+
+    fn encode<S: rustc_serialize::Encoder>(&self, s: &mut S) -> Result<(), S::Error> {
+        s.emit_struct("Port", 3, |s| write_port(s.w(), &self).or_else(|_| unimplemented!()))
+    }
 }
 
 impl rustc_serialize::Encodable for term::Ref {
