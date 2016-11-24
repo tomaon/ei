@@ -1,5 +1,7 @@
 # [erl_interface][1] for Rust
 
+[![Build Status](https://travis-ci.org/tomaon/ei.svg?branch=master)](https://travis-ci.org/tomaon/ei)
+
 ## build
 
 ```bash
