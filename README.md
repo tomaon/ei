@@ -60,6 +60,7 @@ erlang:
 {error,badarg}
 6> port:stop(P).
 ok
+```
 
 ## License
 

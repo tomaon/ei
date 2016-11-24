@@ -9,5 +9,5 @@ keywords = ["erlang", "erl_interface", "cnode", "port"]
 license = "Apache-2.0"
 
 [dependencies]
-rust-crypto = "^0.2.36"
-rustc-serialize = "^0.3.19"
+rust-crypto = "^0.2"
+rustc-serialize = "^0.3"
