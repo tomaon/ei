@@ -1,33 +1,22 @@
-pub use connect::accept;
-pub use decoder::decode;
-pub use encoder::encode;
-pub use epmd::{port, publish};
-pub use error::Error;
-pub use ports::{recv, send};
-pub use term::{Atom, Pid, Port, Ref, Trace};
-
-pub use handle::handle;
-
-#[macro_use]
-mod error;
 #[macro_use]
 mod macros;
 
-mod connect;
 mod consts;
-mod convert;
-mod decoder;
-mod encoder;
-mod epmd;
-mod fs;
 mod i27;
-mod md5;
-mod net;
-mod os;
-mod ports;
+
+mod error;
+pub use crate::error::Error;
+
 mod term;
+pub use crate::term::{Atom, Pid, Port, Ref, Trace};
 
-mod handle;
+mod io;
+pub use crate::io::{Reader, Writer};
 
-extern crate crypto;
-extern crate rustc_serialize;
+mod de;
+pub use crate::de::{from_reader, Deserializer};
+
+mod ser;
+pub use crate::ser::{to_vec, Serializer};
+
+pub mod port;

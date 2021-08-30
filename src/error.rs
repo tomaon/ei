@@ -1,62 +1,40 @@
 use std::error;
 use std::fmt;
 use std::io;
+use std::str;
 use std::string;
 
-macro_rules! from_raw_os_error {
-    ($e: expr) => (error::Error::from_raw_os_error($e));
-}
+use serde;
 
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
-    FromUtf8(string::FromUtf8Error),
+    Str(str::Utf8Error),
+    String(string::FromUtf8Error),
+    Custom(String),
 }
 
-impl Error {
-
-    pub fn from_raw_os_error(code: i32) -> Error {
-        From::from(io::Error::from_raw_os_error(code))
-    }
-}
-
-impl error::Error for Error {
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::Io(ref e) => e.description(),
-            Error::FromUtf8(ref e) => e.description(),
-        }
-    }
-
-    fn cause(&self) -> Option<&error::Error> {
-        match *self {
-            Error::Io(ref e) => e.cause(),
-            Error::FromUtf8(ref e) => e.cause(),
-        }
-    }
-}
+impl error::Error for Error {}
 
 impl fmt::Display for Error {
-
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
             Error::Io(ref e) => e.fmt(f),
-            Error::FromUtf8(ref e) => e.fmt(f),
+            Error::Str(ref e) => e.fmt(f),
+            Error::String(ref e) => e.fmt(f),
+            Error::Custom(_) => unimplemented!("fmt"),
         }
     }
 }
 
-impl From<io::Error> for Error {
-
-    fn from(e: io::Error) -> Error {
-        Error::Io(e)
+impl serde::de::Error for Error {
+    fn custom<T: fmt::Display>(_msg: T) -> Self {
+        unimplemented!("custom")
     }
 }
 
-impl From<string::FromUtf8Error> for Error {
-
-    fn from(e: string::FromUtf8Error) -> Error {
-        Error::FromUtf8(e)
+impl serde::ser::Error for Error {
+    fn custom<T: fmt::Display>(_msg: T) -> Self {
+        unimplemented!("custom")
     }
 }

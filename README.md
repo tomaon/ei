@@ -1,40 +1,18 @@
 # [erl_interface][1] for Rust
 
-[![Build Status](https://travis-ci.org/tomaon/ei.svg?branch=master)](https://travis-ci.org/tomaon/ei)
+## TODO
+- improper list
+- cnode
 
 ## build
+- rust: 1.54.0
+- erlang: 24.0.5
 
 ```bash
 cargo build
 ```
 
 ## Example
-
-### cnode:
-
-rust:
-```bash
-$ epmd -daemon
-$
-$ cargo run --example echo
-local: V6([::1]:3456)
-epmd : (3456, 5)
-```
-
-erlang:
-```bash
-% erl -sname e1 -proto_dist inet6_tcp
-Eshell V8.0  (abort with ^G)
-(e1@x)1>
-```
-
-```erlang
-(e1@x)1> {any, 'r1@localhost'} ! 123. % u64 only
-123
-(e1@x)2> flush().
-Shell got {ok,123}
-ok
-```
 
 ### port:
 
@@ -44,7 +22,7 @@ $ cargo build --example port
 ...
 $ cd examples
 $ erl
-Eshell V8.0  (abort with ^G)
+Eshell V12.0.3  (abort with ^G)
 1>
 ```
 
@@ -53,13 +31,13 @@ erlang:
 1> c(port).
 {ok,port}
 2> {ok,P} = port:start_link().
-{ok,<0.63.0>}
-3> port:foo(P, 3).
-{ok,4}
-4> port:bar(P, 3).
-{ok,6}
-5> port:baz(P, 3).
-{error,badarg}
+{ok,<0.86.0>}
+3> port:add(P, 1, 2).
+{ok,3}
+4> port:sub(P, 3, 1).
+{ok,2}
+5> port:mul(P, 2, 3).
+{error,undef}
 6> port:stop(P).
 ok
 ```

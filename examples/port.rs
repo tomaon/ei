@@ -1,72 +1,54 @@
-use std::error::Error;
 use std::io;
 use std::sync::mpsc;
 use std::thread;
 
-extern crate ei;
-
-mod calc_pi;
-
-macro_rules! atom {
-    ($e: expr) => (ei::Atom::from($e));
-}
+use ei;
 
 fn main() {
-
     let (sender, receiver) = mpsc::channel::<Vec<u8>>();
 
+    // port -> beam
+    let mut writer = ei::Writer::new(io::stdout());
+
     thread::spawn(move || {
-        loop {
-            match receiver.recv() {
-                Ok(vec) => if let Err(e) = ei::send(&mut io::stdout(), vec.as_slice()) {
-                    panic!("{:?}", e);
-                },
-                Err(_) => break,
-            }
+        while let Ok(vec) = receiver.recv() {
+            writer.send(vec.as_slice()).unwrap()
         }
     });
 
-    loop {
-        match ei::recv(&mut io::stdin()) {
-            Ok(mut cursor) => {
-                let s = sender.clone();
-                thread::spawn(move || {
+    // beam -> port
+    let mut reader = ei::Reader::new(io::stdin());
 
-                    let req: (u64,u64,(ei::Pid,ei::Ref)) = ei::decode(&mut cursor).unwrap();
+    while let Ok(vec) = reader.recv() {
+        let s = sender.clone();
+        thread::spawn(move || {
+            let req: (u8, i64, i64, ei::Pid, ei::Atom, ei::Ref) =
+                ei::deserialize!(vec.as_slice()).unwrap();
 
-                    let mut buf = Vec::new();
+            let res = match req.0 {
+                0x61 => {
+                    let res = (ei::atom!("ok"), add(req.1, req.2), req.3, req.4, req.5);
+                    ei::serialize!(&res).unwrap()
+                }
+                0x73 => {
+                    let res = (ei::atom!("ok"), sub(req.1, req.2), req.3, req.4, req.5);
+                    ei::serialize!(&res).unwrap()
+                }
+                _ => {
+                    let res = (ei::atom!("error"), ei::atom!("undef"), req.3, req.4, req.5);
+                    ei::serialize!(&res).unwrap()
+                }
+            };
 
-                    match req.0 {
-                        0x66 => ei::encode(&mut buf, &(atom!("ok"), foo(req.1), req.2)).unwrap(),
-                        0x62 => ei::encode(&mut buf, &(atom!("ok"), bar(req.1), req.2)).unwrap(),
-                        0x7a => ei::encode(&mut buf, &(atom!("error"), atom!("badarg"), req.2)).unwrap(),
-                        _    => ei::encode(&mut buf, &(atom!("ok"), pi(req.0,req.1), req.2)).unwrap(),
-                    }
-
-                    if let Err(e) = s.send(buf) {
-                        panic!("{:?}", e);
-                    }
-                });
-            },
-            Err(e) => match e.description() { // TODO
-                "operation interrupted" => break,
-                _                       => panic!("{:?}", e),
-            },
-        }
+            s.send(res).unwrap();
+        });
     }
 }
 
-fn foo(val: u64) -> u64 {
-    val + 1
+fn add(v1: i64, v2: i64) -> i64 {
+    v1 + v2
 }
 
-fn bar(val: u64) -> u64 {
-    val * 2
-}
-
-fn pi(n: u64, num_threads: u64) -> f64 {
-    match calc_pi::calc_pi_parallel(n as u32, num_threads as u32) {
-        Ok(f)  => f,
-        Err(_) => unimplemented!(),
-    }
+fn sub(v1: i64, v2: i64) -> i64 {
+    v1 - v2
 }

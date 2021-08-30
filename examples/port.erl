@@ -2,7 +2,7 @@
 
 %% -- public --
 -export([start_link/0, stop/1]).
--export([foo/2, bar/2, baz/2, pi/3]).
+-export([add/3, sub/3, mul/3]).
 
 %% -- behaviour: gen_server --
 -behaviour(gen_server).
@@ -39,26 +39,20 @@ stop(Pid)
   when is_pid(Pid) ->
     gen_server:call(Pid, stop).
 
+-spec add(pid(),integer(),integer()) -> {ok,integer()}|{error,_}.
+add(Pid, Int1, Int2)
+  when is_pid(Pid), is_integer(Int1), is_integer(Int2) ->
+    gen_server:call(Pid, {port_command, $a, Int1, Int2}, timer:seconds(3)).
 
--spec foo(pid(),integer()) -> {ok,integer()}|{error,_}.
-foo(Pid, Long)
-  when is_pid(Pid), is_integer(Long) ->
-    call(Pid, $f, Long, timer:seconds(3)).
+-spec sub(pid(),integer(),integer()) -> {ok,integer()}|{error,_}.
+sub(Pid, Int1, Int2)
+  when is_pid(Pid), is_integer(Int1), is_integer(Int2) ->
+    gen_server:call(Pid, {port_command, $s, Int1, Int2}, timer:seconds(3)).
 
--spec bar(pid(),integer()) -> {ok,integer()}|{error,_}.
-bar(Pid, Long)
-  when is_pid(Pid), is_integer(Long) ->
-    call(Pid, $b, Long, timer:seconds(3)).
-
--spec baz(pid(),integer()) -> {ok,integer()}|{error,_}.
-baz(Pid, Long)
-  when is_pid(Pid), is_integer(Long) ->
-    call(Pid, $z, Long, timer:seconds(3)).
-
--spec pi(pid(),integer(),integer()) -> {ok,float()}|{error,_}.
-pi(Pid, N, NumThreads)
-  when is_pid(Pid), is_integer(N), is_integer(NumThreads) ->
-    call(Pid, N, NumThreads, infinity).
+-spec mul(pid(),integer(),integer()) -> {ok,integer()}|{error,_}.
+mul(Pid, Int1, Int2)
+  when is_pid(Pid), is_integer(Int1), is_integer(Int2) ->
+    gen_server:call(Pid, {port_command, $m, Int1, Int2}, timer:seconds(3)).
 
 %% == private ==
 
@@ -74,9 +68,6 @@ start_link(Args, Options) ->
             end
     end.
 
-call(Pid, Char, Int, Timeout) ->
-    gen_server:call(Pid, {port_command,Char,Int}, Timeout).
-
 %% == behaviour: gen_server ==
 
 init(Args) ->
@@ -88,8 +79,9 @@ terminate(_Reason, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-handle_call({port_command,C,I}, From, #state{port=P}=S) ->
-    true = port_command(P, term_to_binary({C,I,From})),
+% Tag: [H|T], improper list -> tuple
+handle_call({port_command,C,I1,I2}, {F,[H|T]}, #state{port=P}=S) ->
+    true = port_command(P, term_to_binary({C,I1,I2,F,H,T})),
     {noreply, S};
 handle_call({setup,Args}, _From, State) ->
     setup(Args, State);
@@ -101,8 +93,8 @@ handle_cast(_Request, State) ->
     {stop, enotsup, State}.
 
 handle_info({P,{data,B}}, #state{port=P}=S) ->
-    Tuple = binary_to_term(B),
-    _ = apply(gen_server, reply, delete_element(size(Tuple),Tuple)),
+    {R,V,F,H,T} = binary_to_term(B),
+    ok = gen_server:reply({F,[H|T]}, {R,V}),
     {noreply, S};
 handle_info({'EXIT',P,Reason}, #state{port=P}=S) ->
     {stop, {port_close,Reason}, S#state{port = undefined}};
@@ -132,8 +124,3 @@ setup([{open_port,A}|T], #state{port=undefined}=S) ->
     end;
 setup([], State) ->
     {reply, ok, State}.
-
-
-delete_element(Index, Tuple) ->
-    Term = element(Index, Tuple),
-    [Term, erlang:delete_element(Index,Tuple)].
