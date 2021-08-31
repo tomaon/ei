@@ -554,8 +554,7 @@ where
                 visitor.visit_str("V4Port")
             }
             ERL_SMALL_TUPLE_EXT => {
-                let vec = self.reader.read_exact_usize(3)?;
-                match vec.as_slice() {
+                match self.reader.read_exact_const::<3>()? {
                     [0x03, ERL_SMALL_INTEGER_EXT, ERL_SEND]        => visitor.visit_str("Send"),
                     [0x04, ERL_SMALL_INTEGER_EXT, ERL_SEND_TT]     => visitor.visit_str("SendTT"),
                     [0x04, ERL_SMALL_INTEGER_EXT, ERL_REG_SEND]    => visitor.visit_str("RegSend"),

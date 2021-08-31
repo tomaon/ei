@@ -32,6 +32,12 @@ where
     }
 
     #[inline]
+    pub fn read_exact_const<const LEN: usize>(&mut self) -> Result<[u8; LEN], Error> {
+        let mut buf = [0u8; LEN];
+        self.read_exact(&mut buf).and_then(|()| Ok(buf))
+    }
+
+    #[inline]
     pub fn read_exact_u8(&mut self) -> Result<Vec<u8>, Error> {
         self.read_u8()
             .and_then(|u| self.read_exact_usize(u as usize))
