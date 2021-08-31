@@ -39,7 +39,7 @@ where
         }
         self.writer
             .write_all(&[ERL_SMALL_BIG_EXT, vec.len() as u8, s])?;
-        self.writer.write_all(vec.as_slice())
+        self.writer.write_all(&vec)
     }
 
     pub fn write_tuple(&mut self, len: usize) -> Result<(), Error> {

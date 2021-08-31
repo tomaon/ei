@@ -12,7 +12,7 @@ fn main() {
 
     thread::spawn(move || {
         while let Ok(vec) = receiver.recv() {
-            writer.send(vec.as_slice()).unwrap()
+            writer.send(&vec).unwrap()
         }
     });
 

@@ -321,7 +321,7 @@ where
     {
         match self.reader.read_u8()? {
             ERL_BINARY_EXT => {
-                self.reader.read_exact_u32().and_then(|v| visitor.visit_bytes(v.as_slice()))
+                self.reader.read_exact_u32().and_then(|v| visitor.visit_bytes(&v))
             }
             u => Err(invalid_data!("deserialize_bytes: {}", u)),
         }
