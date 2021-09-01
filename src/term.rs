@@ -13,7 +13,7 @@ impl<'a> From<&'a str> for Atom {
     }
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Serialize, PartialEq, Debug)]
 pub struct Pid {
     pub node: Atom,
     pub num: u32,
