@@ -17,7 +17,7 @@ impl<W> Serializer<W>
 where
     W: io::Write,
 {
-    pub fn new(w: W) -> Self {
+    fn new(w: W) -> Self {
         Serializer {
             writer: Writer::new(w),
             etype: Vec::with_capacity(16),
@@ -25,12 +25,12 @@ where
         }
     }
 
-    pub fn write_i27(&mut self, v: i32) -> Result<(), Error> {
+    fn write_i27(&mut self, v: i32) -> Result<(), Error> {
         self.writer.write_u8(ERL_INTEGER_EXT)?;
         self.writer.write_i32(v)
     }
 
-    pub fn write_small_big(&mut self, s: u8, v: u64) -> Result<(), Error> {
+    fn write_small_big(&mut self, s: u8, v: u64) -> Result<(), Error> {
         let mut vec = Vec::with_capacity(8);
         let mut u = v;
         while u != 0 {
@@ -42,7 +42,7 @@ where
         self.writer.write_all(&vec)
     }
 
-    pub fn write_tuple(&mut self, len: usize) -> Result<(), Error> {
+    fn write_tuple(&mut self, len: usize) -> Result<(), Error> {
         if len > u8::MAX as usize {
             self.writer.write_u8(ERL_LARGE_TUPLE_EXT)?;
             self.writer.write_u32(len as u32)

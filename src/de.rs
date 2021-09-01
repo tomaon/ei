@@ -16,7 +16,7 @@ impl<R> Deserializer<R>
 where
     R: io::Read,
 {
-    pub fn new(r: R) -> Self {
+    fn new(r: R) -> Self {
         Deserializer {
             reader: Reader::new(r),
             etype: Vec::with_capacity(16),
@@ -24,7 +24,7 @@ where
         }
     }
 
-    pub fn read_number(&mut self) -> Result<Number, Error> {
+    fn read_number(&mut self) -> Result<Number, Error> {
         match self.reader.read_u8()? {
             ERL_SMALL_INTEGER_EXT => self.reader.read_u8().map(Number::U8),
             ERL_INTEGER_EXT => self.reader.read_i32().map(Number::I32),
@@ -73,7 +73,7 @@ where
         }
     }
 
-    pub fn read_unit(&mut self) -> Result<(), Error> {
+    fn read_unit(&mut self) -> Result<(), Error> {
         match self.reader.read_u8()? {
             ERL_NIL_EXT => Ok(()),
             u => Err(invalid_data!("read_unit: {}", u)),
