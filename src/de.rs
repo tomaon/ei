@@ -461,18 +461,10 @@ where
     {
         match name.len() {
             0 => {
-                visitor.visit_seq(ListAccess {
-                    de: self,
-                    len: Some(fields.len()),
-                })
+                visitor.visit_seq(ListAccess::new(self, Some(fields.len())))
             }
             _ => match self.read_tuple()? {
-                u if u == fields.len() => {
-                    visitor.visit_seq(ListAccess {
-                        de: self,
-                        len: Some(u),
-                    })
-                }
+                u if u == fields.len() => visitor.visit_seq(ListAccess::new(self, Some(u))),
                 u => Err(interrupted!("deserialize_struct: {}, {}", name, u)),
             },
         }
