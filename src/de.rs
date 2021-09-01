@@ -1,10 +1,11 @@
-use std::io;
+use std::{fmt, io};
 
 use serde::{de, serde_if_integer128};
 
 use crate::consts::*;
 use crate::error::Error;
 use crate::io::{Number, Reader};
+use crate::term::Atom;
 
 pub struct Deserializer<R> {
     reader: Reader<R>,
@@ -304,12 +305,12 @@ where
                     u => Err(invalid_data!("deserialize_string: {}", u)),
                 }
             }
-            Some([ERL_ATOM_EXT, _]) | Some([ERL_ATOM_UTF8_EXT, _]) => {
-                self.reader.read_string_u16().and_then(|s| visitor.visit_string(s))
-            }
-            Some([ERL_SMALL_ATOM_UTF8_EXT, _]) => {
-                self.reader.read_string_u8().and_then(|s| visitor.visit_string(s))
-            }
+            // Some([ERL_ATOM_EXT, _]) | Some([ERL_ATOM_UTF8_EXT, _]) => {
+            //     self.reader.read_string_u16().and_then(|s| visitor.visit_string(s))
+            // }
+            // Some([ERL_SMALL_ATOM_UTF8_EXT, _]) => {
+            //     self.reader.read_string_u8().and_then(|s| visitor.visit_string(s))
+            // }
             o => Err(interrupted!("deserialize_string: {:?}", o)),
         }
     }
@@ -472,14 +473,17 @@ where
 
     fn deserialize_enum<V>(
         self,
-        _name: &'static str,
+        name: &'static str,
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        visitor.visit_enum(self)
+        match name {
+            ATOM => visitor.visit_enum(&mut AtomDeserializer::new(self)),
+            _ => visitor.visit_enum(self),
+        }
     }
 
     #[rustfmt::skip]
@@ -488,18 +492,18 @@ where
         V: de::Visitor<'de>,
     {
         match self.reader.read_u8()? {
-            ERL_ATOM_EXT => {
-                self.etype.push([ERL_ATOM_EXT, 0]);
-                visitor.visit_str("Latin1")
-            }
-            ERL_SMALL_ATOM_UTF8_EXT => {
-                self.etype.push([ERL_SMALL_ATOM_UTF8_EXT, 0]);
-                visitor.visit_str("UTF8Small")
-            }
-            ERL_ATOM_UTF8_EXT => {
-                self.etype.push([ERL_ATOM_UTF8_EXT, 0]);
-                visitor.visit_str("UTF8")
-            }
+            // ERL_ATOM_EXT => {
+            //     self.etype.push([ERL_ATOM_EXT, 0]);
+            //     visitor.visit_str("Latin1")
+            // }
+            // ERL_SMALL_ATOM_UTF8_EXT => {
+            //     self.etype.push([ERL_SMALL_ATOM_UTF8_EXT, 0]);
+            //     visitor.visit_str("UTF8Small")
+            // }
+            // ERL_ATOM_UTF8_EXT => {
+            //     self.etype.push([ERL_ATOM_UTF8_EXT, 0]);
+            //     visitor.visit_str("UTF8")
+            // }
             ERL_NEW_PORT_EXT => {
                 self.etype.push([ERL_NEW_PORT_EXT, 3]); // creation
                 self.etype.push([ERL_NEW_PORT_EXT, 2]); // id
@@ -733,6 +737,416 @@ where
     let mut de = Deserializer::new(reader);
     de::Deserialize::deserialize(&mut de)
 }
+
+// #region Atom
+
+const ATOM: &'static str = "__ATOM__";
+
+struct AtomDeserializer<'a, R> {
+    de: &'a mut Deserializer<R>,
+    field: u8,
+}
+
+impl<'a, R> AtomDeserializer<'a, R>
+where
+    R: io::Read,
+{
+    fn new(de: &'a mut Deserializer<R>) -> Self {
+        AtomDeserializer { de, field: 0 }
+    }
+}
+
+impl<'de, 'a, R> de::Deserializer<'de> for &mut AtomDeserializer<'a, R>
+where
+    R: io::Read,
+{
+    type Error = Error;
+
+    #[rustfmt::skip]
+    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>, // de::StringVisitor
+    {
+        match self.field {
+            ERL_ATOM_EXT | ERL_ATOM_UTF8_EXT => {
+                self.de.reader.read_string_u16().and_then(|s| visitor.visit_string(s))
+            }
+            ERL_SMALL_ATOM_UTF8_EXT => {
+                self.de.reader.read_string_u8().and_then(|s| visitor.visit_string(s))
+            }
+            u => Err(invalid_data!("deserialize_string: {}", u)),
+        }
+    }
+
+    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>, // AtomFieldVisitor
+    {
+        visitor.visit_u8(self.field)
+    }
+
+    fn is_human_readable(&self) -> bool {
+        false
+    }
+
+    // #region unimplemented
+
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_any")
+    }
+
+    fn deserialize_bool<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_bool")
+    }
+
+    fn deserialize_i8<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_i8")
+    }
+
+    fn deserialize_i16<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_i16")
+    }
+
+    fn deserialize_i32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_i32")
+    }
+
+    fn deserialize_i64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_i64")
+    }
+
+    serde_if_integer128! {
+        fn deserialize_i128<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: de::Visitor<'de>
+        {
+            unimplemented!("deserialize_i128")
+        }
+    }
+
+    fn deserialize_u8<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_u8")
+    }
+
+    fn deserialize_u16<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_u16")
+    }
+
+    fn deserialize_u32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_u32 (atom)")
+    }
+
+    fn deserialize_u64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_u64")
+    }
+
+    serde_if_integer128! {
+        fn deserialize_u128<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: de::Visitor<'de>
+        {
+            unimplemented!("deserialize_u128")
+        }
+    }
+
+    fn deserialize_f32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_f32")
+    }
+
+    fn deserialize_f64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_f64")
+    }
+
+    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_char")
+    }
+
+    fn deserialize_str<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_str");
+    }
+
+    fn deserialize_bytes<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_bytes");
+    }
+
+    fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_byte_buf");
+    }
+
+    fn deserialize_option<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_option")
+    }
+
+    fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_unit")
+    }
+
+    fn deserialize_unit_struct<V>(
+        self,
+        _name: &'static str,
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_unit_struct")
+    }
+
+    fn deserialize_newtype_struct<V>(
+        self,
+        _name: &'static str,
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_newtype_struct")
+    }
+
+    fn deserialize_seq<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_seq")
+    }
+
+    fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_tuple")
+    }
+
+    fn deserialize_tuple_struct<V>(
+        self,
+        _name: &'static str,
+        _len: usize,
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_tuple_struct")
+    }
+
+    fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_map")
+    }
+
+    fn deserialize_struct<V>(
+        self,
+        _name: &'static str,
+        _fields: &'static [&'static str],
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_struct")
+    }
+
+    fn deserialize_enum<V>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_enum")
+    }
+
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_ignored_any");
+    }
+
+    // #endregion
+}
+
+impl<'de, 'a, R> de::EnumAccess<'de> for &mut AtomDeserializer<'a, R>
+where
+    R: io::Read,
+{
+    type Error = Error;
+    type Variant = Self;
+
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+    where
+        V: de::DeserializeSeed<'de>, // PhantomData<AtomField>
+    {
+        self.field = self.de.reader.read_u8()?;
+        seed.deserialize(&mut *self).map(|v| (v, self))
+    }
+}
+
+impl<'de, 'a, R> de::VariantAccess<'de> for &mut AtomDeserializer<'a, R>
+where
+    R: io::Read,
+{
+    type Error = Error;
+
+    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
+    where
+        T: de::DeserializeSeed<'de>, // PhantomData<String>
+    {
+        seed.deserialize(self)
+    }
+
+    // #region unimplemented
+
+    fn unit_variant(self) -> Result<(), Self::Error> {
+        unimplemented!("unit_variant")
+    }
+
+    fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("tuple_variant")
+    }
+
+    fn struct_variant<V>(
+        self,
+        _fields: &'static [&'static str],
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("struct_variant")
+    }
+
+    // #endregion
+}
+
+#[derive(Debug)]
+struct AtomField(u8);
+
+struct AtomFieldVisitor;
+
+impl<'de> de::Visitor<'de> for AtomFieldVisitor {
+    type Value = AtomField;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("struct Field")
+    }
+
+    fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Ok(AtomField(v))
+    }
+}
+
+impl<'de> de::Deserialize<'de> for AtomField {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        deserializer.deserialize_identifier(AtomFieldVisitor)
+    }
+}
+
+struct AtomEnumVisitor;
+
+impl<'de> de::Visitor<'de> for AtomEnumVisitor {
+    type Value = Atom;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("enum Atom")
+    }
+
+    fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::EnumAccess<'de>, // Deserializer<R>
+    {
+        match data.variant()? {
+            (AtomField(ERL_ATOM_EXT), variant) => {
+                de::VariantAccess::newtype_variant::<String>(variant).map(Atom::Latin1)
+            }
+            (AtomField(ERL_SMALL_ATOM_UTF8_EXT), variant) => {
+                de::VariantAccess::newtype_variant::<String>(variant).map(Atom::UTF8Small)
+            }
+            (AtomField(ERL_ATOM_UTF8_EXT), variant) => {
+                de::VariantAccess::newtype_variant::<String>(variant).map(Atom::UTF8)
+            }
+            (f, _) => unimplemented!("visit_enum: {:?}", f),
+        }
+    }
+}
+
+impl<'de> de::Deserialize<'de> for Atom {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        deserializer.deserialize_enum(ATOM, &[], AtomEnumVisitor)
+    }
+}
+
+// #endregion
 
 #[cfg(test)]
 #[rustfmt::skip]

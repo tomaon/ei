@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Serialize, PartialEq, Debug)]
 pub enum Atom {
     Latin1(String),
     UTF8Small(String),
