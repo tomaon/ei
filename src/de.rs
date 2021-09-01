@@ -5,12 +5,12 @@ use serde::{de, serde_if_integer128};
 use crate::consts::*;
 use crate::error::Error;
 use crate::io::{Number, Reader};
-use crate::term::{Atom, Pid};
+use crate::term::{Atom, Pid, Ref};
 
 pub struct Deserializer<R> {
     reader: Reader<R>,
     etype: Vec<[u8; 2]>,
-    ref_n: Option<usize>,
+    // ref_n: Option<usize>,
 }
 
 impl<R> Deserializer<R>
@@ -21,7 +21,7 @@ where
         Deserializer {
             reader: Reader::new(r),
             etype: Vec::with_capacity(16),
-            ref_n: None,
+            // ref_n: None,
         }
     }
 
@@ -64,12 +64,12 @@ where
             //     self.etype.push([ERL_NEW_PID_EXT, 2]); // num
             //     Ok(4)
             // }
-            ERL_NEWER_REFERENCE_EXT => {
-                self.etype.push([ERL_NEWER_REFERENCE_EXT, 4]); // n
-                self.etype.push([ERL_NEWER_REFERENCE_EXT, 3]); // creation
-                self.etype.push([ERL_NEWER_REFERENCE_EXT, 1]); // len
-                Ok(4)
-            }
+            // ERL_NEWER_REFERENCE_EXT => {
+            //     self.etype.push([ERL_NEWER_REFERENCE_EXT, 4]); // n
+            //     self.etype.push([ERL_NEWER_REFERENCE_EXT, 3]); // creation
+            //     self.etype.push([ERL_NEWER_REFERENCE_EXT, 1]); // len
+            //     Ok(4)
+            // }
             u => Err(invalid_data!("read_tuple: {}", u)),
         }
     }
@@ -136,11 +136,11 @@ where
                     e                                     => Err(invalid_data!("deserialize_i16: {:?}", e)),
                 }
             }
-            Some([ERL_NEWER_REFERENCE_EXT, _]) => {
-                let i = self.reader.read_i16()?;
-                self.ref_n = if i > 0 { Some(i as usize) } else { None };
-                visitor.visit_i16(i)
-            }
+            // Some([ERL_NEWER_REFERENCE_EXT, _]) => {
+            //     let i = self.reader.read_i16()?;
+            //     self.ref_n = if i > 0 { Some(i as usize) } else { None };
+            //     visitor.visit_i16(i)
+            // }
             o => Err(interrupted!("deserialize_i16: {:?}", o)),
         }
     }
@@ -219,7 +219,7 @@ where
                     e                                              => Err(invalid_data!("deserialize_u32: {:?}", e)),
                 }
             }
-            /* Some([ERL_NEW_PID_EXT, _]) | */ Some([ERL_NEW_PORT_EXT, _]) | Some([ERL_V4_PORT_EXT, _]) | Some([ERL_NEWER_REFERENCE_EXT,_]) => {
+            /* Some([ERL_NEW_PID_EXT, _]) | */ Some([ERL_NEW_PORT_EXT, _]) | Some([ERL_V4_PORT_EXT, _]) /* | Some([ERL_NEWER_REFERENCE_EXT,_]) */ => {
                 self.reader.read_u32().and_then(|u| visitor.visit_u32(u))
             }
             o => Err(interrupted!("deserialize_u32: {:?}", o)),
@@ -335,14 +335,15 @@ where
         self.deserialize_bytes(visitor)
     }
 
-    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_option<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        match self.ref_n {
-            Some(_) => visitor.visit_some(self),
-            None => visitor.visit_none(),
-        }
+        // match self.ref_n {
+        //     Some(_) => visitor.visit_some(self),
+        //     None => visitor.visit_none(),
+        // }
+        Err(unsupported!("deserialize_option"))
     }
 
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -395,15 +396,15 @@ where
                     u => Err(invalid_data!("deserialize_seq: {}", u)),
                 }
             }
-            Some([ERL_NEWER_REFERENCE_EXT, 4]) => {
-                match self.ref_n {
-                    Some(u) => {
-                        self.etype.append(&mut [[ERL_NEWER_REFERENCE_EXT, 4]].repeat(u + 1));
-                        visitor.visit_seq(ArrayAccess::new(self, Some(u)))
-                    }
-                    None => visitor.visit_seq(ArrayAccess::new(self, None)),
-                }
-            }
+            // Some([ERL_NEWER_REFERENCE_EXT, 4]) => {
+            //     match self.ref_n {
+            //         Some(u) => {
+            //             self.etype.append(&mut [[ERL_NEWER_REFERENCE_EXT, 4]].repeat(u + 1));
+            //             visitor.visit_seq(ArrayAccess::new(self, Some(u)))
+            //         }
+            //         None => visitor.visit_seq(ArrayAccess::new(self, None)),
+            //     }
+            // }
             o => Err(interrupted!("deserialize_seq: {:?}", o)),
         }
     }
@@ -464,6 +465,12 @@ where
             PID => {
                 match self.reader.read_u8()? {
                     ERL_NEW_PID_EXT => visitor.visit_seq(PidSeqAccess::new(self)),
+                    u => Err(interrupted!("deserialize_struct: {}, {}", name, u)),
+                }
+            }
+            REF => {
+                match self.reader.read_u8()? {
+                    ERL_NEWER_REFERENCE_EXT => visitor.visit_seq(RefSeqAccess::new(self, Some(4))),
                     u => Err(interrupted!("deserialize_struct: {}, {}", name, u)),
                 }
             }
@@ -1495,6 +1502,369 @@ impl<'de> de::Deserialize<'de> for Pid {
         D: de::Deserializer<'de>, // Deserializer<R>
     {
         deserializer.deserialize_struct(PID, &[], PidVisitor)
+    }
+}
+
+// #endregion
+
+// #region Ref
+
+const REF: &'static str = "__REF__";
+
+struct RefSeqAccess<'a, R> {
+    de: RefDeserializer<'a, R>,
+    len: Option<usize>,
+}
+
+impl<'a, R> RefSeqAccess<'a, R>
+where
+    R: io::Read,
+{
+    fn new(de: &'a mut Deserializer<R>, len: Option<usize>) -> Self {
+        RefSeqAccess {
+            de: RefDeserializer::new(de),
+            len,
+        }
+    }
+}
+
+impl<'de, 'a, R> de::SeqAccess<'de> for RefSeqAccess<'a, R>
+where
+    R: io::Read,
+{
+    type Error = Error;
+
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+    where
+        T: de::DeserializeSeed<'de>,
+    {
+        match self.len {
+            Some(u) => {
+                self.len = if u > 1 { Some(u - 1) } else { None };
+                seed.deserialize(&mut self.de).map(Some)
+            }
+            None => Ok(None),
+        }
+    }
+}
+
+struct RefDeserializer<'a, R> {
+    de: &'a mut Deserializer<R>,
+    len: Option<usize>,
+}
+
+impl<'a, R> RefDeserializer<'a, R>
+where
+    R: io::Read,
+{
+    fn new(de: &'a mut Deserializer<R>) -> Self {
+        RefDeserializer { de, len: None }
+    }
+}
+
+impl<'de, 'a, R> de::Deserializer<'de> for &mut RefDeserializer<'a, R>
+where
+    R: io::Read,
+{
+    type Error = Error;
+
+    fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        let i = self.de.reader.read_i16()?;
+        self.len = if i > 0 { Some(i as usize) } else { None };
+        visitor.visit_i16(i)
+    }
+
+    fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.de.reader.read_u32().and_then(|u| visitor.visit_u32(u))
+    }
+
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.len {
+            Some(_) => visitor.visit_some(self),
+            None => visitor.visit_none(),
+        }
+    }
+
+    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.len {
+            Some(u) => visitor.visit_seq(RefSeqAccess::new(self.de, Some(u))),
+            None => visitor.visit_seq(RefSeqAccess::new(self.de, None)),
+        }
+    }
+
+    fn deserialize_enum<V>(
+        self,
+        name: &'static str,
+        _variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        match name {
+            ATOM => visitor.visit_enum(&mut AtomDeserializer::new(self.de)),
+            u => Err(interrupted!("deserialize_enum: {}, {}", name, u)),
+        }
+    }
+
+    fn is_human_readable(&self) -> bool {
+        false
+    }
+
+    // #region unimplemented
+
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_any")
+    }
+
+    fn deserialize_bool<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_bool")
+    }
+
+    fn deserialize_i8<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_i8")
+    }
+
+    fn deserialize_i32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_i32")
+    }
+
+    fn deserialize_i64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_i64")
+    }
+
+    serde_if_integer128! {
+        fn deserialize_i128<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: de::Visitor<'de>
+        {
+            unimplemented!("deserialize_i128")
+        }
+    }
+
+    fn deserialize_u8<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_u8")
+    }
+
+    fn deserialize_u16<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_u16")
+    }
+
+    fn deserialize_u64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_u64")
+    }
+
+    serde_if_integer128! {
+        fn deserialize_u128<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+        where
+            V: de::Visitor<'de>
+        {
+            unimplemented!("deserialize_u128")
+        }
+    }
+
+    fn deserialize_f32<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_f32")
+    }
+
+    fn deserialize_f64<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_f64")
+    }
+
+    fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_char")
+    }
+
+    fn deserialize_str<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_str");
+    }
+
+    fn deserialize_string<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_string")
+    }
+
+    fn deserialize_bytes<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_bytes");
+    }
+
+    fn deserialize_byte_buf<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_byte_buf");
+    }
+
+    fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_unit")
+    }
+
+    fn deserialize_unit_struct<V>(
+        self,
+        _name: &'static str,
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_unit_struct")
+    }
+
+    fn deserialize_newtype_struct<V>(
+        self,
+        _name: &'static str,
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_newtype_struct")
+    }
+
+    fn deserialize_tuple<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_tuple")
+    }
+
+    fn deserialize_tuple_struct<V>(
+        self,
+        _name: &'static str,
+        _len: usize,
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_tuple_struct")
+    }
+
+    fn deserialize_map<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_map")
+    }
+
+    fn deserialize_struct<V>(
+        self,
+        _name: &'static str,
+        _fields: &'static [&'static str],
+        _visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_struct")
+    }
+
+    fn deserialize_identifier<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_identifier")
+    }
+
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        unimplemented!("deserialize_ignored_any");
+    }
+
+    // #endregion
+}
+
+struct RefStructVisitor;
+
+impl<'de> de::Visitor<'de> for RefStructVisitor {
+    type Value = Ref;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("enum Ref")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::SeqAccess<'de>, // RefSeqAccess
+    {
+        let len = de::SeqAccess::next_element::<i16>(&mut seq)?.unwrap();
+        let node = de::SeqAccess::next_element::<Atom>(&mut seq)?.unwrap();
+        let creation = de::SeqAccess::next_element::<u32>(&mut seq)?.unwrap();
+        let n = de::SeqAccess::next_element::<Option<Vec<u32>>>(&mut seq)?.unwrap();
+
+        Ok(Ref {
+            len,
+            node,
+            creation,
+            n,
+        })
+    }
+}
+
+impl<'de> de::Deserialize<'de> for Ref {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>, // Deserializer<R>
+    {
+        deserializer.deserialize_struct(REF, &[], RefStructVisitor)
     }
 }
 

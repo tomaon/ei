@@ -27,7 +27,7 @@ pub enum Port {
     V4Port { node: Atom, id: u64, creation: u32 },
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Debug)]
+#[derive(Serialize, PartialEq, Debug)]
 pub struct Ref {
     pub len: i16, // 0..5
     pub node: Atom,
