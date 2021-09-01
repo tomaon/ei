@@ -385,17 +385,11 @@ where
             None => {
                 match self.reader.read_u8()? {
                     ERL_NIL_EXT => {
-                        visitor.visit_seq(ListAccess {
-                            de: self,
-                            len: None,
-                        })
-                    },
+                        visitor.visit_seq(ListAccess::new(self, None))
+                    }
                     ERL_LIST_EXT => {
                         let u = self.reader.read_u32()? as usize;
-                        visitor.visit_seq(ListAccess {
-                            de: self,
-                            len: Some(u),
-                        })
+                        visitor.visit_seq(ListAccess::new(self, Some(u)))
                     }
                     u => Err(invalid_data!("deserialize_seq: {}", u)),
                 }
@@ -404,35 +398,21 @@ where
                 match self.ref_n {
                     Some(u) => {
                         self.etype.append(&mut [[ERL_NEWER_REFERENCE_EXT, 4]].repeat(u + 1));
-                        visitor.visit_seq(ArrayAccess {
-                            de: self,
-                            len: Some(u),
-                        })
+                        visitor.visit_seq(ArrayAccess::new(self, Some(u)))
                     }
-                    None => {
-                        visitor.visit_seq(ArrayAccess {
-                            de: self,
-                            len: None,
-                        })
-                    }
+                    None => visitor.visit_seq(ArrayAccess::new(self, None)),
                 }
             }
             o => Err(interrupted!("deserialize_seq: {:?}", o)),
         }
     }
 
-    #[rustfmt::skip]
     fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
         match self.read_tuple()? {
-            u if u == len => {
-                visitor.visit_seq(ListAccess {
-                    de: self,
-                    len: Some(u),
-                })
-            }
+            u if u == len => visitor.visit_seq(ListAccess::new(self, Some(u))),
             u => Err(interrupted!("deserialize_tuple: {}", u)),
         }
     }
@@ -448,12 +428,7 @@ where
         V: de::Visitor<'de>,
     {
         match self.read_tuple()? {
-            u if u == len => {
-                visitor.visit_seq(ListAccess {
-                    de: self,
-                    len: Some(u),
-                })
-            }
+            u if u == len => visitor.visit_seq(ListAccess::new(self, Some(u))),
             u => Err(interrupted!("deserialize_tuple_struct: {}, {}", name, u)),
         }
     }
@@ -466,18 +441,8 @@ where
         match self.reader.read_u8()? {
             ERL_MAP_EXT => {
                 match self.reader.read_u32()? as usize {
-                    0 => {
-                        visitor.visit_map(MapAccess {
-                            de: self,
-                            len: None,
-                        })
-                    }
-                    u => {
-                        visitor.visit_map(MapAccess {
-                            de: self,
-                            len: Some(u),
-                        })
-                    }
+                    0 => visitor.visit_map(MapAccess::new(self, None)),
+                    u => visitor.visit_map(MapAccess::new(self, Some(u))),
                 }
             }
             u => Err(invalid_data!("deserialize_map: {}", u)),
@@ -631,9 +596,20 @@ where
     }
 }
 
+// #region ListAccess
+
 struct ListAccess<'a, R> {
     de: &'a mut Deserializer<R>,
     len: Option<usize>,
+}
+
+impl<'a, R> ListAccess<'a, R>
+where
+    R: io::Read,
+{
+    fn new(de: &'a mut Deserializer<R>, len: Option<usize>) -> Self {
+        ListAccess { de, len }
+    }
 }
 
 impl<'de, 'a, R> de::SeqAccess<'de> for ListAccess<'a, R>
@@ -664,9 +640,22 @@ where
     }
 }
 
+// #endregion
+
+// #region ArrayAccess
+
 struct ArrayAccess<'a, R> {
     de: &'a mut Deserializer<R>,
     len: Option<usize>,
+}
+
+impl<'a, R> ArrayAccess<'a, R>
+where
+    R: io::Read,
+{
+    fn new(de: &'a mut Deserializer<R>, len: Option<usize>) -> Self {
+        ArrayAccess { de, len }
+    }
 }
 
 impl<'de, 'a, R> de::SeqAccess<'de> for ArrayAccess<'a, R>
@@ -693,9 +682,22 @@ where
     }
 }
 
+// #endregion
+
+// #region MapAccess
+
 struct MapAccess<'a, R> {
     de: &'a mut Deserializer<R>,
     len: Option<usize>,
+}
+
+impl<'a, R> MapAccess<'a, R>
+where
+    R: io::Read,
+{
+    fn new(de: &'a mut Deserializer<R>, len: Option<usize>) -> Self {
+        MapAccess { de, len }
+    }
 }
 
 impl<'de, 'a, R> de::MapAccess<'de> for MapAccess<'a, R>
@@ -728,6 +730,8 @@ where
         self.len
     }
 }
+
+// #endregion
 
 pub fn from_reader<R, T>(reader: R) -> Result<T, Error>
 where
